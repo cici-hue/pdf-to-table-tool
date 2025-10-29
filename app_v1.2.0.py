@@ -10,15 +10,15 @@ import pandas as pd
 import tempfile
 import base64
 
-# 设置日志
+# Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class PDFTextExtractor:
-    """使用 pdfplumber 提取 PDF 文本"""
+    """Extract PDF text using pdfplumber"""
     
     def extract_text_from_pdf(self, pdf_path):
-        """使用 pdfplumber 可靠地提取文本"""
+        """Reliably extract text using pdfplumber"""
         text = ""
         try:
             with pdfplumber.open(pdf_path) as pdf:
@@ -28,29 +28,29 @@ class PDFTextExtractor:
                         text += page_text + "\n"
 
             if not text.strip():
-                return "无法提取文本"
+                return "Failed to extract text"
 
             return text
 
         except Exception as e:
-            logger.error(f"提取 PDF 文本失败: {str(e)}")
-            return "无法提取文本"
+            logger.error(f"Failed to extract PDF text: {str(e)}")
+            return "Failed to extract text"
 
 class DataMapper:
-    """数据映射器 - 将第一张表转换为第二张表"""
+    """Data mapper - Convert first table to second table"""
     
     def __init__(self):
         self.target_columns = [
             "Picture", "Production Type", "Claim Type", "Vendor", "Claim No.", 
             "Claim Date", "Inspection Date", "Customer", "Dept.", "FID", 
             "TEAM", "QC Trip Leader", "Style NO.", "Order No.", "Article No.", 
-            "Relevant shipped Qty", "Quality Digit  （Market)", "Defect Code", 
+            "Relevant shipped Qty", "Quality Digit (Market)", "Defect Code", 
             "Claim Reason", "QC Responsibility", "Claim Status", "Validate Month", 
-            "Claim shipped Qty", "Random check in customer' warehouse", "Re-check in warehouse"
+            "Claim shipped Qty", "Random check in customer warehouse", "Re-check in warehouse"
         ]
     
     def map_to_target_format(self, source_df):
-        """将源数据映射到目标格式"""
+        """Map source data to target format"""
         if source_df.empty:
             return pd.DataFrame(columns=self.target_columns)
         
@@ -62,23 +62,23 @@ class DataMapper:
         
         result_df = pd.DataFrame(mapped_data, columns=self.target_columns)
         
-        # 确保 Random check in customer' warehouse 字段为文本格式
-        if "Random check in customer' warehouse" in result_df.columns:
-            result_df["Random check in customer' warehouse"] = result_df["Random check in customer' warehouse"].astype(str)
+        # Ensure Random check in customer warehouse field is text format
+        if "Random check in customer warehouse" in result_df.columns:
+            result_df["Random check in customer warehouse"] = result_df["Random check in customer warehouse"].astype(str)
         
         return result_df
     
     def process_single_row(self, source_row):
-        """处理单行数据的映射"""
+        """Process single row data mapping"""
         mapped_row = {col: "" for col in self.target_columns}
         
-        # 1. Claim Type逻辑（基于VBA代码逻辑）
+        # 1. Claim Type logic (based on VBA code logic)
         mapped_row["Claim Type"] = self.get_claim_type(source_row)
         
-        # 2. Claim Status固定为Failure
+        # 2. Claim Status fixed as Failure
         mapped_row["Claim Status"] = "Failure"
         
-        # 3. 基本字段映射
+        # 3. Basic field mapping
         field_mappings = {
             "Vendor": "Supplier Name",
             "Claim No.": "Claim no", 
@@ -95,59 +95,59 @@ class DataMapper:
         for target_field, source_field in field_mappings.items():
             mapped_row[target_field] = self.safe_extract_value(source_row, source_field)
         
-        # 4. 组合字段：Random check in customer' warehouse
-        mapped_row["Random check in customer' warehouse"] = self.combine_faulty_random(source_row)
+        # 4. Combined field: Random check in customer warehouse
+        mapped_row["Random check in customer warehouse"] = self.combine_faulty_random(source_row)
         
-        # 5. Validate Month 留空
+        # 5. Validate Month left empty
         mapped_row["Validate Month"] = ""
         
-        # 6. 其他字段保持为空（Picture, Production Type, Inspection Date, FID, TEAM, 
-        #    QC Trip Leader, Quality Digit, Defect Code, QC Responsibility, Claim shipped Qty, Re-check in warehouse）
+        # 6. Other fields remain empty (Picture, Production Type, Inspection Date, FID, TEAM, 
+        #    QC Trip Leader, Quality Digit, Defect Code, QC Responsibility, Claim shipped Qty, Re-check in warehouse)
         
         return mapped_row
     
     def get_claim_type(self, row):
-        """根据Decision列确定Claim Type（基于VBA逻辑）"""
+        """Determine Claim Type based on Decision column (based on VBA logic)"""
         decision_value = self.safe_extract_value(row, "Decision")
         
         if not decision_value:
-            return "Claim"  # 默认值
+            return "Claim"  # Default value
         
-        # 检查是否包含"未提取到"
-        if "未提取到" in decision_value:
+        # Check if contains "Not extracted"
+        if "Not extracted" in decision_value:
             return ""
         
-        # 根据特定值判断
+        # Determine based on specific values
         if decision_value in ["QD45 (Q)", "Q"]:
             return "Complaint"
         else:
             return "Claim"
     
     def combine_faulty_random(self, row):
-        """组合Faulty pcs和Random quantity字段"""
+        """Combine Faulty pcs and Random quantity fields"""
         faulty_pcs = self.safe_extract_value(row, "Faulty pcs")
         random_qty = self.safe_extract_value(row, "Random quantity")
         
-        # 只有当两个值都存在且不为空时才组合
-        if faulty_pcs and random_qty and faulty_pcs != "未提取到" and random_qty != "未提取到":
+        # Only combine when both values exist and are not empty
+        if faulty_pcs and random_qty and faulty_pcs != "Not extracted" and random_qty != "Not extracted":
             return f"{faulty_pcs}/{random_qty}"
         else:
             return ""
     
     def safe_extract_value(self, row, column_name):
-        """安全提取值，处理"未提取到"和空值情况"""
+        """Safely extract value, handling 'Not extracted' and empty values"""
         try:
-            # 检查列是否存在
+            # Check if column exists
             if column_name not in row.index:
                 return ""
             
             value = str(row[column_name])
             
-            # 检查是否包含"未提取到"
-            if "未提取到" in value:
+            # Check if contains "Not extracted"
+            if "Not extracted" in value:
                 return ""
             
-            # 检查是否为NaN或空字符串
+            # Check if NaN or empty string
             if pd.isna(row[column_name]) or value.strip() == "":
                 return ""
                 
@@ -157,7 +157,7 @@ class DataMapper:
             return ""
 
 class UnifiedPDFProcessor:
-    """统一的 PDF 处理器"""
+    """Unified PDF processor"""
     
     def __init__(self):
         self.required_fields = [
@@ -170,7 +170,7 @@ class UnifiedPDFProcessor:
         self.data_mapper = DataMapper()
 
     def determine_doc_type(self, filename):
-        """根据文件名判断文档类型"""
+        """Determine document type based on filename"""
         filename_upper = filename.upper()
         if filename_upper.startswith('RDR'):
             return "BPH"
@@ -180,8 +180,8 @@ class UnifiedPDFProcessor:
             return "UNKNOWN"
 
     def convert_date_format(self, date_str, source_format="dmy"):
-        """转换日期格式为 MM/DD/YY"""
-        if date_str == "未提取到" or not date_str:
+        """Convert date format to MM/DD/YY"""
+        if date_str == "Not extracted" or not date_str:
             return date_str
         
         try:
@@ -206,16 +206,16 @@ class UnifiedPDFProcessor:
             
             return date_str
         except Exception as e:
-            logger.warning(f"日期格式转换失败: {date_str}, 错误: {str(e)}")
+            logger.warning(f"Date format conversion failed: {date_str}, error: {str(e)}")
             return date_str
 
     def extract_bph_data(self, text, pdf_path):
-        """从 BPH PDF 提取数据"""
-        data = {field: "未提取到" for field in self.required_fields}
+        """Extract data from BPH PDF"""
+        data = {field: "Not extracted" for field in self.required_fields}
         data['customer_name'] = "BPH"
 
         try:
-            # Claim no (原 Reclamation ID)
+            # Claim no (original Reclamation ID)
             claim_match = re.search(r'Reclamation\s+ID\s*[\|:]?\s*(\d+)', text, re.IGNORECASE)
             if not claim_match:
                 claim_match = re.search(r'Reclamation\s+details\s+report\s+with\s+reclamation\s+ID\s*=\s*(\d+)', text, re.IGNORECASE)
@@ -239,14 +239,14 @@ class UnifiedPDFProcessor:
                 data['Item No'] = item_match.group(1)
 
             # Delivered quantity
-            quantity_match = re.search(r'实际交付数量\s*[\|:]?\s*(\d+)', text, re.IGNORECASE)
+            quantity_match = re.search(r'Delivered\s+quantity\s*[\|:]?\s*(\d+)', text, re.IGNORECASE)
             if not quantity_match:
                 quantity_match = re.search(r'Delivered\s+quantity\s+Office[^\d]*(\d+)', text, re.IGNORECASE)
 
             if quantity_match:
                 quantity = quantity_match.group(1)
                 if len(quantity) == 6:
-                    data['Delivered quantity'] = "未提取到"
+                    data['Delivered quantity'] = "Not extracted"
                 else:
                     data['Delivered quantity'] = quantity
 
@@ -258,7 +258,7 @@ class UnifiedPDFProcessor:
                 r'OI\s+China\s+(\d{6})\s+([^\n]+?)\s+Dept\./Subdept\.',
             ]
 
-            supplier_name = "未提取到"
+            supplier_name = "Not extracted"
             for pattern in supplier_patterns:
                 supplier_match = re.search(pattern, text, re.IGNORECASE)
                 if supplier_match:
@@ -277,14 +277,14 @@ class UnifiedPDFProcessor:
             elif dept_match:
                 data['Dept.'] = dept_match.group(1)
 
-            # Order No（提取时已为字符串，保留前导零）
+            # Order No (extracted as string, preserve leading zeros)
             order_match = re.search(r'Order\s+No\s*[\|:]?\s*(\d+)', text, re.IGNORECASE)
             if not order_match and dept_match and len(dept_match.groups()) > 1:
                 data['Order No'] = dept_match.group(2)
             elif order_match:
                 data['Order No'] = order_match.group(1)
 
-            # Random quantity 和 Faulty pcs
+            # Random quantity and Faulty pcs
             sample_faulty_match = re.search(r'Random\s+sample\s*Faulty\s+pieces\s*(\d+)\s*(\d+)', text)
             if sample_faulty_match:
                 data['Random quantity'] = sample_faulty_match.group(1)
@@ -301,12 +301,12 @@ class UnifiedPDFProcessor:
                     if date_match:
                         data['Date of decision'] = self.convert_date_format(date_match.group(1), "mdy")
 
-            if data['Date of decision'] == "未提取到":
+            if data['Date of decision'] == "Not extracted":
                 date_decision_match = re.search(r'Date of decision\s+(\d+/\d+/\d+)', text, re.IGNORECASE)
                 if date_decision_match:
                     data['Date of decision'] = self.convert_date_format(date_decision_match.group(1), "mdy")
 
-            if data['Date of decision'] == "未提取到":
+            if data['Date of decision'] == "Not extracted":
                 decided_by_match = re.search(r'Decided by[^\n]*', text, re.IGNORECASE)
                 if decided_by_match:
                     end_pos = decided_by_match.end()
@@ -325,8 +325,8 @@ class UnifiedPDFProcessor:
                 comment = re.sub(r'\s+', ' ', comment)
                 data['Description of faults'] = comment.strip()
 
-            # Decision (原 Status)
-            if data['Claim no'] != "未提取到":
+            # Decision (original Status)
+            if data['Claim no'] != "Not extracted":
                 claim_id = data['Claim no']
                 pattern3 = (
                     r'Reclamation\s+ID\s*[\s\S]*?' + re.escape(claim_id) +
@@ -343,20 +343,20 @@ class UnifiedPDFProcessor:
                     if status_text and not re.match(r'^\d+$', status_text):
                         data['Decision'] = status_text
 
-            logger.info(f"处理 BPH 文档: {pdf_path}")
+            logger.info(f"Processed BPH document: {pdf_path}")
 
         except Exception as e:
-            logger.error(f"处理 BPH 文档 {pdf_path} 时出错: {str(e)}")
+            logger.error(f"Error processing BPH document {pdf_path}: {str(e)}")
 
         return data
 
     def extract_ovh_data(self, text, pdf_path):
-        """从 OVH PDF 提取数据"""
-        data = {field: "未提取到" for field in self.required_fields}
+        """Extract data from OVH PDF"""
+        data = {field: "Not extracted" for field in self.required_fields}
         data['customer_name'] = "OVH"
         
         try:
-            # 1. Claim no - OTTO前面的一串7位数字
+            # 1. Claim no - 7-digit number before OTTO
             otto_match = re.search(r'(\d{7})\s+OTTO', text)
             if otto_match:
                 data['Claim no'] = otto_match.group(1)
@@ -387,7 +387,7 @@ class UnifiedPDFProcessor:
                     delivered_str = delivered_match.group(1).replace(',', '')
                     data['Delivered quantity'] = delivered_str
             
-            # 6. Order No（提取时已为字符串，保留前导零）
+            # 6. Order No (extracted as string, preserve leading zeros)
             if style_no_section:
                 style_line = style_no_section.group(1)
                 order_match = re.search(r'[A-Z]\s+(\d{6})', style_line)
@@ -413,7 +413,7 @@ class UnifiedPDFProcessor:
                         if fields:
                             data['Style No'] = fields[-1]
 
-            # 8. Random quantity 和 Faulty pcs
+            # 8. Random quantity and Faulty pcs
             pcs_set_match = re.search(r'pcs/\s*set\s*(\d+)\s*(\d+)(?:\s*(\d+))?', text, re.IGNORECASE)
             if pcs_set_match:
                 if pcs_set_match.group(3):
@@ -425,7 +425,7 @@ class UnifiedPDFProcessor:
                     data['Random quantity'] = pcs_set_match.group(1)
                     data['Faulty pcs'] = pcs_set_match.group(2)
             
-            # 9. Decision (原 Deci.) 和 Date of decision
+            # 9. Decision (original Deci.) and Date of decision
             deci_date_pattern = r'([A-Z])\s*/\s*([A-Z])\s*/\s*[^/]+\s*/\s*(\d{1,2}/\d{1,2}/\d{2})'
             deci_date_match = re.search(deci_date_pattern, text)
             
@@ -443,7 +443,7 @@ class UnifiedPDFProcessor:
                         data['Decision'] = deci_match.group(2)
                         data['Date of decision'] = self.convert_date_format(date_match.group(1), "dmy")
             
-            # 10. Description of faults（无翻译，保留原始文本）
+            # 10. Description of faults (no translation, keep original text)
             description_match = re.search(r'Description\s+of\s+faults\s*([\s\S]*?)(?=\s*Rework)', text, re.IGNORECASE)
             if description_match:
                 original_description = description_match.group(1).strip()
@@ -451,15 +451,15 @@ class UnifiedPDFProcessor:
                 cleaned_description = re.sub(r'\s+', ' ', cleaned_description)
                 data['Description of faults'] = cleaned_description
             
-            logger.info(f"处理 OVH 文档: {pdf_path}")
+            logger.info(f"Processed OVH document: {pdf_path}")
             return data
             
         except Exception as e:
-            logger.error(f"处理 OVH 文档 {pdf_path} 时出错: {str(e)}")
+            logger.error(f"Error processing OVH document {pdf_path}: {str(e)}")
             return data
 
     def process_pdfs(self, pdf_files):
-        """处理 PDF 文件列表（强制 Order No 为字符串类型）"""
+        """Process PDF file list (force Order No to string type)"""
         all_data = []
 
         for pdf_file in pdf_files:
@@ -474,7 +474,7 @@ class UnifiedPDFProcessor:
             finally:
                 os.unlink(tmp_path)
         
-        # 步骤1：转换为DataFrame并强制Order No为字符串
+        # Step 1: Convert to DataFrame and force Order No to string
         df = pd.DataFrame(all_data)
         if 'Order No' in df.columns:
             df['Order No'] = df['Order No'].astype(str)
@@ -482,13 +482,13 @@ class UnifiedPDFProcessor:
         return df
 
     def extract_data_from_pdf(self, pdf_path, filename):
-        """从 PDF 提取数据，自动判断文档类型"""
+        """Extract data from PDF, automatically determine document type"""
         text = self.pdf_extractor.extract_text_from_pdf(pdf_path)
 
-        if text == "无法提取文本":
-            logger.warning(f"无法从 {pdf_path} 提取文本")
-            data = {field: "无法提取文本" for field in self.required_fields}
-            data['customer_name'] = "未知"
+        if text == "Failed to extract text":
+            logger.warning(f"Failed to extract text from {pdf_path}")
+            data = {field: "Failed to extract text" for field in self.required_fields}
+            data['customer_name'] = "Unknown"
             return data
 
         doc_type = self.determine_doc_type(filename)
@@ -503,34 +503,34 @@ class UnifiedPDFProcessor:
             elif "OTTO" in text and "Control" in text:
                 return self.extract_ovh_data(text, pdf_path)
             else:
-                logger.warning(f"无法确定文档类型，默认使用 BPH 处理: {filename}")
+                logger.warning(f"Unable to determine document type, using BPH as default: {filename}")
                 return self.extract_bph_data(text, pdf_path)
 
 def get_download_link(df, filename, text):
-    """生成下载链接（确保Order No和Random check字段不被识别为日期）"""
-    # 复制DataFrame避免修改原数据
+    """Generate download link (ensure Order No and Random check fields are not recognized as dates)"""
+    # Copy DataFrame to avoid modifying original data
     df_download = df.copy()
     
-    # 处理Order No字段 - 添加单引号防止Excel自动转换
+    # Process Order No field - add single quote to prevent Excel auto-conversion
     if 'Order No' in df_download.columns:
         df_download['Order No'] = df_download['Order No'].apply(
             lambda x: f"'{x}" if x and x.isdigit() else x
         )
     
-    # 处理Random check in customer' warehouse字段 - 添加单引号防止Excel自动转换为日期
-    if "Random check in customer' warehouse" in df_download.columns:
-        df_download["Random check in customer' warehouse"] = df_download["Random check in customer' warehouse"].apply(
+    # Process Random check in customer warehouse field - add single quote to prevent Excel auto-conversion to date
+    if "Random check in customer warehouse" in df_download.columns:
+        df_download["Random check in customer warehouse"] = df_download["Random check in customer warehouse"].apply(
             lambda x: f"'{x}" if x and '/' in x and x.replace('/', '').isdigit() else x
         )
     
-    # 导出CSV（此时特殊字段带单引号，Excel打开会识别为文本）
+    # Export CSV (special fields will have single quotes, Excel will recognize as text)
     csv = df_download.to_csv(index=False, encoding='utf-8-sig')
     b64 = base64.b64encode(csv.encode('utf-8-sig')).decode()
     href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{text}</a>'
     return href
 
 def style_dataframe_by_customer(df):
-    """根据客户类型为数据框添加样式"""
+    """Add styling to dataframe based on customer type"""
     def color_customer_name(val):
         if val == 'BPH':
             return 'background-color: #e6f3ff; color: #0074D9; font-weight: bold'
@@ -543,7 +543,7 @@ def style_dataframe_by_customer(df):
     return styled_df
 
 def apply_custom_dataframe_styling():
-    """应用自定义表格样式"""
+    """Apply custom table styling"""
     st.markdown("""
     <style>
     .dataframe tbody tr th {
@@ -556,7 +556,7 @@ def apply_custom_dataframe_styling():
     .dataframe thead th {
         text-align: center !important;
     }
-    .dataframe td:nth-child(12) {  /* Description of faults 列 */
+    .dataframe td:nth-child(12) {  /* Description of faults column */
         min-width: 500px !important;
         max-width: 500px !important;
         white-space: normal !important;
@@ -566,23 +566,23 @@ def apply_custom_dataframe_styling():
     """, unsafe_allow_html=True)
 
 def main():
-    """主函数 - Streamlit 应用"""
+    """Main function - Streamlit application"""
     st.set_page_config(
-        page_title="PDF 转表格工具",
+        page_title="PDF to Table Converter",
         page_icon="📊",
         layout="wide"
     )
 
     apply_custom_dataframe_styling()
 
-    st.title("📊 PDF 转表格工具")
-    st.markdown("自动识别并处理 BPH 和 OVH PDF 文档，提取数据并转换为表格格式")
+    st.title("📊 PDF to Table Converter")
+    st.markdown("Automatically identify and process BPH and OVH PDF documents, extract data and convert to table format")
 
     uploaded_files = st.file_uploader(
-        "选择 PDF 文件", 
+        "Select PDF files", 
         type="pdf",
         accept_multiple_files=True,
-        help="可以上传一个或多个 PDF 文件，系统会自动识别文档类型"
+        help="You can upload one or multiple PDF files, system will automatically identify document types"
     )
 
     if uploaded_files:
@@ -599,10 +599,10 @@ def main():
             else:
                 unknown_count += 1
         
-        st.success(f"已选择 {len(uploaded_files)} 个文件")
-        st.info(f"📊 文档类型统计: BPH: {bph_count} 个, OVH: {ovh_count} 个, 未知: {unknown_count} 个")
+        st.success(f"Selected {len(uploaded_files)} files")
+        st.info(f"📊 Document type statistics: BPH: {bph_count}, OVH: {ovh_count}, Unknown: {unknown_count}")
 
-        with st.expander("📁 查看上传的文件列表"):
+        with st.expander("📁 View uploaded file list"):
             for file in uploaded_files:
                 filename_upper = file.name.upper()
                 if filename_upper.startswith('RDR'):
@@ -610,33 +610,33 @@ def main():
                 elif filename_upper.startswith('CR'):
                     st.write(f"🟢 OVH - {file.name} ({file.size} bytes)")
                 else:
-                    st.write(f"⚪ 未知 - {file.name} ({file.size} bytes)")
+                    st.write(f"⚪ Unknown - {file.name} ({file.size} bytes)")
 
-        if st.button("🚀 开始处理 PDF 文件", type="primary"):
+        if st.button("🚀 Start Processing PDF Files", type="primary"):
             processor = UnifiedPDFProcessor()
 
-            with st.spinner("⏳ 正在处理 PDF 文件，请稍候..."):
-                # 生成第一张表（源数据）
+            with st.spinner("⏳ Processing PDF files, please wait..."):
+                # Generate first table (source data)
                 df_source = processor.process_pdfs(uploaded_files)
                 
-                # 重新排列列的顺序
+                # Reorder columns
                 columns_order = ['Source File', 'customer_name'] + [col for col in processor.required_fields if col != 'customer_name']
                 existing_columns = [col for col in columns_order if col in df_source.columns]
                 df_source = df_source[existing_columns]
 
-                # 生成第二张表（目标格式）
+                # Generate second table (target format)
                 df_target = processor.data_mapper.map_to_target_format(df_source)
 
-                # 显示第一张表
-                st.subheader("📋 第一张表 - 提取结果（源数据）")
+                # Display first table
+                st.subheader("📋 First Table - Extraction Results (Source Data)")
                 bph_processed = len(df_source[df_source['customer_name'] == 'BPH'])
                 ovh_processed = len(df_source[df_source['customer_name'] == 'OVH'])
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("🔵 BPH 文档", bph_processed)
+                    st.metric("🔵 BPH Documents", bph_processed)
                 with col2:
-                    st.metric("🟢 OVH 文档", ovh_processed)
+                    st.metric("🟢 OVH Documents", ovh_processed)
                 
                 styled_source_df = style_dataframe_by_customer(df_source)
                 st.dataframe(
@@ -645,16 +645,16 @@ def main():
                     height=min(800, 100 + len(df_source) * 50)
                 )
 
-                # 显示第二张表
-                st.subheader("📋 第二张表 - 映射结果（目标格式）")
+                # Display second table
+                st.subheader("📋 Second Table - Mapping Results (Target Format)")
                 st.dataframe(
                     df_target, 
                     use_container_width=True,
                     height=min(800, 100 + len(df_target) * 50)
                 )
 
-                # 显示统计信息
-                st.subheader("📊 提取统计")
+                # Display statistics
+                st.subheader("📊 Extraction Statistics")
                 total_files = len(df_source)
                 stats_data = []
 
@@ -663,80 +663,80 @@ def main():
                     if len(customer_df) > 0:
                         for field in processor.required_fields:
                             if field != 'customer_name' and field in df_source.columns:
-                                count = len(customer_df[customer_df[field] != "未提取到"])
+                                count = len(customer_df[customer_df[field] != "Not extracted"])
                                 stats_data.append({
-                                    '客户类型': customer,
-                                    '字段名': field,
-                                    '成功提取': count,
-                                    '总计': len(customer_df),
-                                    '成功率': f"{(count/len(customer_df))*100:.1f}%"
+                                    'Customer Type': customer,
+                                    'Field Name': field,
+                                    'Successfully Extracted': count,
+                                    'Total': len(customer_df),
+                                    'Success Rate': f"{(count/len(customer_df))*100:.1f}%"
                                 })
 
                 stats_df = pd.DataFrame(stats_data)
                 if not stats_df.empty:
                     st.dataframe(stats_df, use_container_width=True)
 
-                # 整体统计
+                # Overall statistics
                 successful_files = sum(1 for idx, row in df_source.iterrows() if any(
-                    row[field] != "未提取到" and row[field] != "无法提取文本" 
+                    row[field] != "Not extracted" and row[field] != "Failed to extract text" 
                     for field in processor.required_fields if field != 'customer_name'
                 ))
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("总文件数", total_files)
+                    st.metric("Total Files", total_files)
                 with col2:
-                    st.metric("成功提取文件数", successful_files)
+                    st.metric("Successfully Processed Files", successful_files)
                 with col3:
-                    st.metric("整体成功率", f"{(successful_files/total_files)*100:.1f}%")
+                    st.metric("Overall Success Rate", f"{(successful_files/total_files)*100:.1f}%")
 
-                # 提供下载
-                st.subheader("💾 下载结果")
+                # Provide download
+                st.subheader("💾 Download Results")
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    # 第一张表下载
+                    # First table download
                     source_filename = f"source_data_{timestamp}.csv"
-                    st.markdown(get_download_link(df_source, source_filename, "📥 下载第一张表（源数据）"), unsafe_allow_html=True)
+                    st.markdown(get_download_link(df_source, source_filename, "📥 Download First Table (Source Data)"), unsafe_allow_html=True)
                 
                 with col2:
-                    # 第二张表下载
+                    # Second table download
                     target_filename = f"target_data_{timestamp}.csv"
-                    st.markdown(get_download_link(df_target, target_filename, "📥 下载第二张表（目标格式）"), unsafe_allow_html=True)
+                    st.markdown(get_download_link(df_target, target_filename, "📥 Download Second Table (Target Format)"), unsafe_allow_html=True)
 
                 st.balloons()
-                st.success("🎉 所有文档处理完成！")
+                st.success("🎉 All documents processed successfully!")
 
     else:
-        st.info("📝 请上传 PDF 文件开始处理")
+        st.info("📝 Please upload PDF files to start processing")
 
-        with st.expander("📖 使用说明"):
+        with st.expander("📖 User Guide"):
             st.markdown("""
-            ### 功能说明
-            - **支持两种类型的 PDF 文档：**
+            ### Function Description
+            - **Supports two types of PDF documents:**
               - 🔵 **BPH**: Reclamation details report
               - 🟢 **OVH**: Control report
-            - **自动生成两张表：**
-              - **第一张表**: 从PDF直接提取的源数据
-              - **第二张表**: 根据映射规则转换的目标格式表
-            - **自动提取以下字段信息：**
+            - **Automatically generates two tables:**
+              - **First table**: Source data directly extracted from PDF
+              - **Second table**: Target format table converted according to mapping rules
+            - **Automatically extracts the following field information:**
               - Claim no, Decision, Style No, Item No
               - Delivered quantity, Supplier Name, Dept.
               - Order No, Random quantity, Faulty pcs
               - Date of decision, Description of faults, customer_name
 
-            ### 使用步骤
-            1. 上传 PDF 文件（支持混合上传 BPH 和 OVH 文档）
-            2. 系统自动识别文档类型
-            3. 点击"开始处理 PDF 文件"
-            4. 查看两张表的提取结果和统计信息
-            5. 分别下载两张表的CSV文件
+            ### Usage Steps
+            1. Upload PDF files (supports mixed upload of BPH and OVH documents)
+            2. System automatically identifies document types
+            3. Click "Start Processing PDF Files"
+            4. View extraction results and statistics for both tables
+            5. Download CSV files for both tables separately
 
-            ### 支持的文件格式
-            - 仅支持 PDF 格式文件
-            - 支持批量上传多个文件
-            - 支持混合上传 BPH 和 OVH 文档
+            ### Supported File Formats
+            - PDF format files only
+            - Supports batch upload of multiple files
+            - Supports mixed upload of BPH and OVH documents
             """)
 
 if __name__ == "__main__":
