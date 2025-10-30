@@ -14,6 +14,15 @@ import base64
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# 完全隐藏所有Streamlit的UI元素
+hide_default_format = """
+       <style>
+       #MainMenu {visibility: hidden; }
+       footer {visibility: hidden;}
+       </style>
+       """
+st.markdown(hide_default_format, unsafe_allow_html=True)
+
 class PDFTextExtractor:
     """Extract PDF text using pdfplumber"""
     
