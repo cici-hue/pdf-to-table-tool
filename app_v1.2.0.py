@@ -548,7 +548,8 @@ def style_dataframe_by_customer(df):
         else:
             return ''
     
-   styled_df = df.style.map(color_customer_name, subset=['customer_name'])
+    # 修复：新版pandas用map替代applymap
+    styled_df = df.style.map(color_customer_name, subset=['customer_name'])
     return styled_df
 
 def apply_custom_dataframe_styling():
